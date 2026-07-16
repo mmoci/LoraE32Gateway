@@ -32,6 +32,11 @@ static MqttClient mqttClient{MqttClient::Config{
     .willTopic     = availabilityTopic,
     .willPayload   = GatewayConfig::PAYLOAD_OFFLINE,
     .onlinePayload = GatewayConfig::PAYLOAD_ONLINE,
+    .staticIp      = NetworkConfig::STATIC_IP,
+    .gateway       = NetworkConfig::GATEWAY,
+    .subnet        = NetworkConfig::SUBNET,
+    .dns1          = NetworkConfig::DNS1,
+    .dns2          = NetworkConfig::DNS2,
 }};
 
 // ─── Gateway Bridge ─────────────────────────────────────────────────────────

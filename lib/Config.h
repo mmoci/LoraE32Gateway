@@ -41,3 +41,17 @@ namespace MqttConfig
     constexpr std::string_view SSID     = WIFI_SSID;
     constexpr std::string_view WIFI_PWD = WIFI_PASSWORD;
 }
+
+// ─── Static IP (optional) ──────────────────────────────────────────────────
+// Leave STATIC_IP as {0,0,0,0} to use DHCP (default).
+// Set all four fields to assign a fixed IP — avoids DHCP lookup delay on boot
+// and ensures the gateway always gets the same address on your network.
+namespace NetworkConfig
+{
+    // Example: IPAddress{192, 168, 1, 50}
+    const IPAddress STATIC_IP {192, 168, 1, 9};   // 0.0.0.0 = use DHCP
+    const IPAddress GATEWAY   {192, 168, 1, 1};
+    const IPAddress SUBNET    {255, 255, 255, 0};
+    const IPAddress DNS1      {8, 8, 8, 8};
+    const IPAddress DNS2      {8, 8, 4, 4};
+}
