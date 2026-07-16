@@ -13,7 +13,6 @@ LoraGatewayBridge::LoraGatewayBridge(MqttClient& mqttClient, E32LoraModule& lora
     , m_loraModule{loraModule}
     , m_config{config}
 {
-    // Pre-build topic strings
     std::string base{m_config.topicPrefix};
     base.append(m_config.deviceId);
     base.append("/");
@@ -23,19 +22,24 @@ LoraGatewayBridge::LoraGatewayBridge(MqttClient& mqttClient, E32LoraModule& lora
     m_txTopic           = base + "tx/set";
 }
 
+void LoraGatewayBridge::registerNode(uint8_t nodeId, NodeDef def)
+{
+    ESP_LOGI(TAG, "Node 0x%02X registered: %s (%s)", nodeId, def.name.c_str(), def.haComponent.c_str());
+    m_nodes.emplace(nodeId, std::move(def));
+}
+
 void LoraGatewayBridge::init()
 {
-    // Subscribe to downlink topic (MQTT → LoRa)
     m_mqttClient.subscribe(m_txTopic, [this](std::string_view payload) {
         onMqttTx(payload);
     });
 
-    // Publish HA discovery after every (re)connect
     m_mqttClient.onConnect([this]() {
         publishHaDiscovery();
     });
 
-    ESP_LOGI(TAG, "Bridge initialised. RX: %s | TX: %s", m_rxTopic.c_str(), m_txTopic.c_str());
+    ESP_LOGI(TAG, "Bridge initialised. RX: %s | TX: %s | Nodes: %u",
+        m_rxTopic.c_str(), m_txTopic.c_str(), (unsigned)m_nodes.size());
 }
 
 void LoraGatewayBridge::process()
@@ -56,14 +60,18 @@ void LoraGatewayBridge::process()
 
 void LoraGatewayBridge::publishHaDiscovery()
 {
-    // ── RX sensor ──────────────────────────────────────────────────────────────
+    // ── Registered sensor nodes ─────────────────────────────────────────────────
+    for (const auto& [id, def] : m_nodes)
+        publishNodeDiscovery(def);
+
+    // ── Generic raw-hex fallback sensor ─────────────────────────────────────────
     {
         std::string discoveryTopic{"homeassistant/sensor/"};
         discoveryTopic.append(m_config.deviceId);
         discoveryTopic.append("/rx/config");
 
         JsonDocument doc;
-        doc["name"]              = "Last LoRa Message";
+        doc["name"]              = "LoRa Raw RX";
         doc["unique_id"]         = std::string{m_config.deviceId} + "_rx";
         doc["state_topic"]       = m_rxTopic;
         doc["value_template"]    = "{{ value_json.hex }}";
@@ -73,44 +81,49 @@ void LoraGatewayBridge::publishHaDiscovery()
         doc["icon"]              = "mdi:radio-tower";
 
         JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0]= m_config.deviceId;
-        device["name"]          = m_config.deviceName;
-        device["model"]         = "E32 LoRa Gateway";
-        device["manufacturer"]  = "Custom";
-
-        std::string payload;
-        serializeJson(doc, payload);
-        m_mqttClient.publish(discoveryTopic, payload, /*retain=*/true);
-        ESP_LOGD(TAG, "HA discovery published: %s", discoveryTopic.c_str());
-    }
-
-    // ── Message counter sensor ──────────────────────────────────────────────────
-    {
-        std::string discoveryTopic{"homeassistant/sensor/"};
-        discoveryTopic.append(m_config.deviceId);
-        discoveryTopic.append("/rx_count/config");
-
-        JsonDocument doc;
-        doc["name"]              = "LoRa Messages Received";
-        doc["unique_id"]         = std::string{m_config.deviceId} + "_rx_count";
-        doc["state_topic"]       = m_rxTopic;
-        doc["value_template"]    = "{{ value_json.count }}";
-        doc["availability_topic"]= m_availabilityTopic;
-        doc["payload_available"] = "online";
-        doc["payload_not_available"] = "offline";
-        doc["icon"]              = "mdi:counter";
-        doc["state_class"]       = "total_increasing";
-
-        JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0]= m_config.deviceId;
-        device["name"]          = m_config.deviceName;
-        device["model"]         = "E32 LoRa Gateway";
-        device["manufacturer"]  = "Custom";
+        device["identifiers"][0] = m_config.deviceId;
+        device["name"]           = m_config.deviceName;
+        device["model"]          = "E32 LoRa Gateway";
+        device["manufacturer"]   = "Custom";
 
         std::string payload;
         serializeJson(doc, payload);
         m_mqttClient.publish(discoveryTopic, payload, /*retain=*/true);
     }
+}
+
+void LoraGatewayBridge::publishNodeDiscovery(const NodeDef& def)
+{
+    std::string stateTopic{m_config.topicPrefix};
+    stateTopic.append(m_config.deviceId).append("/").append(def.name).append("/state");
+
+    std::string discoveryTopic{"homeassistant/"};
+    discoveryTopic.append(def.haComponent).append("/");
+    discoveryTopic.append(m_config.deviceId).append("/").append(def.name).append("/config");
+
+    JsonDocument doc;
+    doc["name"]              = def.name;
+    doc["unique_id"]         = std::string{m_config.deviceId} + "_" + def.name;
+    doc["state_topic"]       = stateTopic;
+    doc["availability_topic"]= m_availabilityTopic;
+    doc["payload_available"] = "online";
+    doc["payload_not_available"] = "offline";
+
+    if (!def.unit.empty())
+        doc["unit_of_measurement"] = def.unit;
+    if (!def.deviceClass.empty())
+        doc["device_class"] = def.deviceClass;
+
+    JsonObject device = doc["device"].to<JsonObject>();
+    device["identifiers"][0] = m_config.deviceId;
+    device["name"]           = m_config.deviceName;
+    device["model"]          = "E32 LoRa Gateway";
+    device["manufacturer"]   = "Custom";
+
+    std::string payload;
+    serializeJson(doc, payload);
+    m_mqttClient.publish(discoveryTopic, payload, /*retain=*/true);
+    ESP_LOGD(TAG, "HA discovery: %s", discoveryTopic.c_str());
 }
 
 void LoraGatewayBridge::onLoraReceived(const uint8_t* data, size_t len)
@@ -118,22 +131,54 @@ void LoraGatewayBridge::onLoraReceived(const uint8_t* data, size_t len)
     static uint32_t msgCount{0};
     ++msgCount;
 
-    std::string hexStr = toHexString(data, len);
-    ESP_LOGI(TAG, "LoRa RX [#%lu] %u byte(s): %s", (unsigned long)msgCount, (unsigned)len, hexStr.c_str());
+    if (len == 0) return;
 
-    JsonDocument doc;
-    doc["hex"]   = hexStr;
-    doc["len"]   = len;
-    doc["count"] = msgCount;
+    // First byte is the node ID — look up a registered handler
+    uint8_t nodeId = data[0];
+    auto it = m_nodes.find(nodeId);
 
-    std::string payload;
-    serializeJson(doc, payload);
-    m_mqttClient.publish(m_rxTopic, payload, /*retain=*/true);
+    if (it != m_nodes.end())
+    {
+        // ── Registered node: decode and publish to per-node state topic ──────────
+        const NodeDef& def = it->second;
+        const uint8_t* payload = data + 1;      // everything after the node ID byte
+        size_t         payloadLen = len - 1;
+
+        std::string state = def.decode(payload, payloadLen);
+
+        std::string stateTopic{m_config.topicPrefix};
+        stateTopic.append(m_config.deviceId).append("/").append(def.name).append("/state");
+
+        m_mqttClient.publish(stateTopic, state, /*retain=*/true);
+        ESP_LOGI(TAG, "Node 0x%02X (%s) → %s", nodeId, def.name.c_str(), state.c_str());
+
+        // Send ACK back to sensor if configured (before the sensor retransmits)
+        if (def.ackByte != 0)
+        {
+            m_loraModule.send(&def.ackByte, 1);
+            ESP_LOGD(TAG, "Node 0x%02X ACK sent: 0x%02X", nodeId, def.ackByte);
+        }
+    }
+    else
+    {
+        // ── Unknown node: publish raw hex to the generic fallback topic ──────────
+        std::string hexStr = toHexString(data, len);
+        ESP_LOGW(TAG, "Unknown node 0x%02X — raw hex: %s", nodeId, hexStr.c_str());
+
+        JsonDocument doc;
+        doc["hex"]    = hexStr;
+        doc["len"]    = len;
+        doc["count"]  = msgCount;
+        doc["nodeId"] = nodeId;
+
+        std::string jsonPayload;
+        serializeJson(doc, jsonPayload);
+        m_mqttClient.publish(m_rxTopic, jsonPayload, /*retain=*/true);
+    }
 }
 
 void LoraGatewayBridge::onMqttTx(std::string_view payload)
 {
-    // Payload is expected to be a hex string, e.g. "55AA0102"
     if (payload.empty())
     {
         ESP_LOGW(TAG, "TX: empty payload — ignoring");
