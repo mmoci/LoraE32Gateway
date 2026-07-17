@@ -3,6 +3,7 @@
 #include "MqttClient.h"
 #include "E32LoraModule.h"
 #include "LoraGatewayBridge.h"
+#include "OtaHandler.h"
 
 // ─── E32 LoRa Module ────────────────────────────────────────────────────────
 static E32LoraModule loraModule{E32LoraModule::Config{
@@ -45,7 +46,11 @@ static LoraGatewayBridge bridge{mqttClient, loraModule, LoraGatewayBridge::Confi
     .topicPrefix = GatewayConfig::TOPIC_PREFIX,
     .deviceName  = GatewayConfig::DEVICE_NAME,
 }};
-
+// ─── OTA Handler ─────────────────────────────────────────────────────────────
+static OtaHandler otaHandler{OtaHandler::Config{
+    .hostname = OtaConfig::HOSTNAME,
+    .password = OtaConfig::PASSWORD,
+}};
 
 void setup()
 {
@@ -106,11 +111,13 @@ void setup()
     // });
 
     mqttClient.init();  // connects WiFi, configures broker endpoint
+    otaHandler.init();  // starts OTA service (lora-gateway.local)
     bridge.init();      // subscribes TX topic, registers HA discovery on connect
 }
 
 void loop()
 {
     mqttClient.process(); // handles WiFi/MQTT reconnection + incoming messages
+    otaHandler.handle();  // handles OTA firmware update requests
     bridge.process();     // forwards LoRa RX → MQTT
 }

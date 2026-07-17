@@ -42,6 +42,14 @@ namespace MqttConfig
     constexpr std::string_view WIFI_PWD = WIFI_PASSWORD;
 }
 
+// ─── OTA Updates ─────────────────────────────────────────────────────────────
+namespace OtaConfig
+{
+    // Device appears as {HOSTNAME}.local on the network (mDNS).
+    constexpr std::string_view HOSTNAME = GatewayConfig::DEVICE_ID;
+    constexpr std::string_view PASSWORD = OTA_PASSWORD;
+}
+
 // ─── Static IP (optional) ──────────────────────────────────────────────────
 // Leave STATIC_IP as {0,0,0,0} to use DHCP (default).
 // Set all four fields to assign a fixed IP — avoids DHCP lookup delay on boot
