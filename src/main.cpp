@@ -63,8 +63,9 @@ void setup()
     // 0xC2 is safe to run repeatedly — it does NOT write to the module's flash,
     // so there is no write-endurance concern. Settings are re-applied from firmware
     // each time the ESP32 starts. Adjust bytes to match your channel/address/baud.
-    // See E32 datasheet for byte layout: [head, addH, addL, sped, chan, option]
-    const uint8_t e32Cfg[] = { 0xC2, 0x00, 0x01, 0x1A, 0x17, 0x44 };
+    // option = 0x04: transparent mode (bit6=0), FEC on (bit2=1), 20dBm, 250ms wake
+    // ⚠ Must match sensor E32 config exactly (same chan=0x17, same air rate)
+    const uint8_t e32Cfg[] = { 0xC2, 0x00, 0x01, 0x1A, 0x17, 0x04 };
     loraModule.program(e32Cfg, sizeof(e32Cfg));
 
     // ─── Register sensor nodes ────────────────────────────────────────────────
@@ -85,10 +86,11 @@ void setup()
     //     Before:  Serial.write(transmitMsg);
     //     After:   Serial.write(0x01); Serial.write(transmitMsg);
     bridge.registerNode(0x01, {
-        .name        = "mailbox",
-        .haComponent = "binary_sensor",
-        .unit        = "",
-        .deviceClass = "occupancy",
+        .name         = "mailbox",
+        .friendlyName = "Mailbox",
+        .haComponent  = "binary_sensor",
+        .unit         = "",
+        .deviceClass  = "occupancy",
         .decode      = [](const uint8_t* d, size_t len) -> std::string {
             if (len < 1) return "OFF";
             return (d[0] == 0x55) ? "ON" : "OFF";

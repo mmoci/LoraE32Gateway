@@ -47,6 +47,11 @@ void LoraGatewayBridge::process()
     if (!m_loraModule.available())
         return;
 
+    // At 9600 baud each byte takes ~1ms. Wait 10ms so all bytes of the
+    // packet have arrived in the UART buffer before reading. Without this,
+    // process() reads only byte 0 (node ID) and misses the payload byte.
+    delay(10);
+
     uint8_t buf[RX_BUFFER_SIZE];
     size_t len = m_loraModule.read(buf, sizeof(buf));
     if (len > 0)
@@ -60,36 +65,8 @@ void LoraGatewayBridge::process()
 
 void LoraGatewayBridge::publishHaDiscovery()
 {
-    // ── Registered sensor nodes ─────────────────────────────────────────────────
     for (const auto& [id, def] : m_nodes)
         publishNodeDiscovery(def);
-
-    // ── Generic raw-hex fallback sensor ─────────────────────────────────────────
-    {
-        std::string discoveryTopic{"homeassistant/sensor/"};
-        discoveryTopic.append(m_config.deviceId);
-        discoveryTopic.append("/rx/config");
-
-        JsonDocument doc;
-        doc["name"]              = "LoRa Raw RX";
-        doc["unique_id"]         = std::string{m_config.deviceId} + "_rx";
-        doc["state_topic"]       = m_rxTopic;
-        doc["value_template"]    = "{{ value_json.hex }}";
-        doc["availability_topic"]= m_availabilityTopic;
-        doc["payload_available"] = "online";
-        doc["payload_not_available"] = "offline";
-        doc["icon"]              = "mdi:radio-tower";
-
-        JsonObject device = doc["device"].to<JsonObject>();
-        device["identifiers"][0] = m_config.deviceId;
-        device["name"]           = m_config.deviceName;
-        device["model"]          = "E32 LoRa Gateway";
-        device["manufacturer"]   = "Custom";
-
-        std::string payload;
-        serializeJson(doc, payload);
-        m_mqttClient.publish(discoveryTopic, payload, /*retain=*/true);
-    }
 }
 
 void LoraGatewayBridge::publishNodeDiscovery(const NodeDef& def)
@@ -102,7 +79,7 @@ void LoraGatewayBridge::publishNodeDiscovery(const NodeDef& def)
     discoveryTopic.append(m_config.deviceId).append("/").append(def.name).append("/config");
 
     JsonDocument doc;
-    doc["name"]              = def.name;
+    doc["name"]              = def.friendlyName.empty() ? def.name : def.friendlyName;
     doc["unique_id"]         = std::string{m_config.deviceId} + "_" + def.name;
     doc["state_topic"]       = stateTopic;
     doc["availability_topic"]= m_availabilityTopic;

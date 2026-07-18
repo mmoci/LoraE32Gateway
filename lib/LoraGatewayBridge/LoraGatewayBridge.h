@@ -68,7 +68,8 @@ public:
      */
     struct NodeDef
     {
-        std::string name;
+        std::string name;           ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
+        std::string friendlyName;   ///< HA display name — can have capitals/spaces (e.g. "Mailbox"); defaults to name if empty
         std::string haComponent;
         std::string unit;
         std::string deviceClass;
