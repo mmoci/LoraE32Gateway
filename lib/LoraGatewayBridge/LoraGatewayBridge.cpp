@@ -22,16 +22,16 @@ LoraGatewayBridge::LoraGatewayBridge(MqttClient& mqttClient, E32LoraModule& lora
     m_txTopic           = base + "tx/set";
 }
 
-void LoraGatewayBridge::registerNode(uint8_t nodeId, NodeDef def)
+void LoraGatewayBridge::registerNode(uint8_t nodeId, NodeConfig nodeConfig)
 {
-    ESP_LOGI(TAG, "Node 0x%02X registered: %s (%s)", nodeId, def.name.c_str(), def.haComponent.c_str());
-    m_nodes.emplace(nodeId, std::move(def));
+    ESP_LOGI(TAG, "Node 0x%02X registered: %s (%s)", nodeId, nodeConfig.name.c_str(), nodeConfig.haComponent.c_str());
+    m_nodes.emplace(nodeId, std::move(nodeConfig));
 }
 
 void LoraGatewayBridge::init()
 {
     m_mqttClient.subscribe(m_txTopic, [this](std::string_view payload) {
-        onMqttTx(payload);
+        handleMqttMsg(payload);
     });
 
     m_mqttClient.onConnect([this]() {
@@ -55,7 +55,7 @@ void LoraGatewayBridge::process()
     uint8_t buf[RX_BUFFER_SIZE];
     size_t len = m_loraModule.read(buf, sizeof(buf));
     if (len > 0)
-        onLoraReceived(buf, len);
+        handleLoraMsg(buf, len);
 }
 
 
@@ -65,31 +65,31 @@ void LoraGatewayBridge::process()
 
 void LoraGatewayBridge::publishHaDiscovery()
 {
-    for (const auto& [id, def] : m_nodes)
-        publishNodeDiscovery(def);
+    for (const auto& [id, nodeConfig] : m_nodes)
+        publishNodeDiscovery(nodeConfig);
 }
 
-void LoraGatewayBridge::publishNodeDiscovery(const NodeDef& def)
+void LoraGatewayBridge::publishNodeDiscovery(const NodeConfig& nodeConfig)
 {
     std::string stateTopic{m_config.topicPrefix};
-    stateTopic.append(m_config.deviceId).append("/").append(def.name).append("/state");
+    stateTopic.append(m_config.deviceId).append("/").append(nodeConfig.name).append("/state");
 
     std::string discoveryTopic{"homeassistant/"};
-    discoveryTopic.append(def.haComponent).append("/");
-    discoveryTopic.append(m_config.deviceId).append("/").append(def.name).append("/config");
+    discoveryTopic.append(nodeConfig.haComponent).append("/");
+    discoveryTopic.append(m_config.deviceId).append("/").append(nodeConfig.name).append("/config");
 
     JsonDocument doc;
-    doc["name"]              = def.friendlyName.empty() ? def.name : def.friendlyName;
-    doc["unique_id"]         = std::string{m_config.deviceId} + "_" + def.name;
-    doc["state_topic"]       = stateTopic;
-    doc["availability_topic"]= m_availabilityTopic;
-    doc["payload_available"] = "online";
+    doc["name"]                  = nodeConfig.friendlyName.empty() ? nodeConfig.name : nodeConfig.friendlyName;
+    doc["unique_id"]             = std::string{m_config.deviceId} + "_" + nodeConfig.name;
+    doc["state_topic"]           = stateTopic;
+    doc["availability_topic"]    = m_availabilityTopic;
+    doc["payload_available"]     = "online";
     doc["payload_not_available"] = "offline";
 
-    if (!def.unit.empty())
-        doc["unit_of_measurement"] = def.unit;
-    if (!def.deviceClass.empty())
-        doc["device_class"] = def.deviceClass;
+    if (!nodeConfig.unit.empty())
+        doc["unit_of_measurement"] = nodeConfig.unit;
+    if (!nodeConfig.deviceClass.empty())
+        doc["device_class"] = nodeConfig.deviceClass;
 
     JsonObject device = doc["device"].to<JsonObject>();
     device["identifiers"][0] = m_config.deviceId;
@@ -103,7 +103,7 @@ void LoraGatewayBridge::publishNodeDiscovery(const NodeDef& def)
     ESP_LOGD(TAG, "HA discovery: %s", discoveryTopic.c_str());
 }
 
-void LoraGatewayBridge::onLoraReceived(const uint8_t* data, size_t len)
+void LoraGatewayBridge::handleLoraMsg(const uint8_t* data, size_t len)
 {
     static uint32_t msgCount{0};
     ++msgCount;
@@ -117,23 +117,23 @@ void LoraGatewayBridge::onLoraReceived(const uint8_t* data, size_t len)
     if (it != m_nodes.end())
     {
         // ── Registered node: decode and publish to per-node state topic ──────────
-        const NodeDef& def = it->second;
+        const NodeConfig& nodeConfig = it->second;
         const uint8_t* payload = data + 1;      // everything after the node ID byte
         size_t         payloadLen = len - 1;
 
-        std::string state = def.decode(payload, payloadLen);
+        std::string state = nodeConfig.decode(payload, payloadLen);
 
         std::string stateTopic{m_config.topicPrefix};
-        stateTopic.append(m_config.deviceId).append("/").append(def.name).append("/state");
+        stateTopic.append(m_config.deviceId).append("/").append(nodeConfig.name).append("/state");
 
         m_mqttClient.publish(stateTopic, state, /*retain=*/true);
-        ESP_LOGI(TAG, "Node 0x%02X (%s) → %s", nodeId, def.name.c_str(), state.c_str());
+        ESP_LOGI(TAG, "Node 0x%02X (%s) → %s", nodeId, nodeConfig.name.c_str(), state.c_str());
 
         // Send ACK back to sensor if configured (before the sensor retransmits)
-        if (def.ackByte != 0)
+        if (nodeConfig.ackByte != 0)
         {
-            m_loraModule.send(&def.ackByte, 1);
-            ESP_LOGD(TAG, "Node 0x%02X ACK sent: 0x%02X", nodeId, def.ackByte);
+            m_loraModule.send(&nodeConfig.ackByte, 1);
+            ESP_LOGD(TAG, "Node 0x%02X ACK sent: 0x%02X", nodeId, nodeConfig.ackByte);
         }
     }
     else
@@ -154,51 +154,58 @@ void LoraGatewayBridge::onLoraReceived(const uint8_t* data, size_t len)
     }
 }
 
-void LoraGatewayBridge::onMqttTx(std::string_view payload)
+void LoraGatewayBridge::handleMqttMsg(std::string_view payload)
 {
     if (payload.empty())
     {
-        ESP_LOGW(TAG, "TX: empty payload — ignoring");
+        ESP_LOGW(TAG, "MQTT: empty payload — ignoring");
         return;
     }
 
     if (payload.size() % 2 != 0)
     {
-        ESP_LOGE(TAG, "TX: odd-length hex string '%.*s' — ignoring", (int)payload.size(), payload.data());
+        ESP_LOGE(TAG, "MQTT: odd-length hex string '%.*s' — ignoring", (int)payload.size(), payload.data());
         return;
     }
 
-    uint8_t buf[RX_BUFFER_SIZE];
-    size_t  outLen{0};
-
-    if (!fromHexString(payload, buf, outLen))
+    std::vector<uint8_t> buf = fromHexString(payload);
+    if (buf.empty())
     {
-        ESP_LOGE(TAG, "TX: invalid hex string '%.*s' — ignoring", (int)payload.size(), payload.data());
+        ESP_LOGE(TAG, "MQTT: invalid hex string '%.*s' — ignoring", (int)payload.size(), payload.data());
         return;
     }
 
-    ESP_LOGI(TAG, "TX → LoRa: %.*s (%u byte(s))", (int)payload.size(), payload.data(), (unsigned)outLen);
-    m_loraModule.send(buf, outLen);
+    ESP_LOGI(TAG, "MQTT -> LoRa: %.*s (%u byte(s))", (int)payload.size(), payload.data(), (unsigned)buf.size());
+    m_loraModule.send(buf.data(), buf.size());
 }
 
 std::string LoraGatewayBridge::toHexString(const uint8_t* data, size_t len)
 {
-    std::string out;
-    out.reserve(len * 2);
+    std::string out{};
+
+    if(len == 0 || data == nullptr)
+        return "";
+
+    auto hexValue = [](const uint8_t byte) -> unsigned char {
+        if (byte >= 0x0 && byte <= 0x9) return static_cast<unsigned char>(byte + '0');
+        if (byte >= 0xA && byte <= 0xF) return static_cast<unsigned char>(byte + 'A' - 10);
+        return 0;
+    };
+
     for (size_t i = 0; i < len; ++i)
     {
-        char tmp[3];
-        snprintf(tmp, sizeof(tmp), "%02X", data[i]);
-        out.append(tmp);
+        out.push_back(hexValue((data[i] >> 4) & 0x0F));
+        out.push_back(hexValue(data[i] & 0x0F));
     }
     return out;
 }
 
-bool LoraGatewayBridge::fromHexString(std::string_view hex, uint8_t* out, size_t& outLen)
+std::vector<uint8_t> LoraGatewayBridge::fromHexString(std::string_view hex)
 {
-    outLen = 0;
+    std::vector<uint8_t> out{};
+
     if (hex.size() % 2 != 0)
-        return false;
+        return out;
 
     for (size_t i = 0; i < hex.size(); i += 2)
     {
@@ -206,7 +213,7 @@ bool LoraGatewayBridge::fromHexString(std::string_view hex, uint8_t* out, size_t
         char lo = hex[i + 1];
 
         if (!isxdigit(static_cast<unsigned char>(hi)) || !isxdigit(static_cast<unsigned char>(lo)))
-            return false;
+            return {};
 
         auto hexVal = [](char c) -> uint8_t {
             if (c >= '0' && c <= '9') return static_cast<uint8_t>(c - '0');
@@ -214,7 +221,7 @@ bool LoraGatewayBridge::fromHexString(std::string_view hex, uint8_t* out, size_t
             return static_cast<uint8_t>(c - 'A' + 10);
         };
 
-        out[outLen++] = static_cast<uint8_t>((hexVal(hi) << 4) | hexVal(lo));
+        out.push_back(static_cast<uint8_t>((hexVal(hi) << 4) | hexVal(lo)));
     }
-    return true;
+    return out;
 }

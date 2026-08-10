@@ -4,6 +4,7 @@
 #include <string_view>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 #include "MqttClient.h"
 #include "E32LoraModule.h"
 
@@ -15,7 +16,7 @@
  * Every LoRa message sent by a sensor node must start with a 1-byte node ID:
  *
  *   Byte 0    : Node ID  (matches a registerNode() call below)
- *   Byte 1..N : Payload  (sensor-specific; passed to the NodeDef::decode function)
+ *   Byte 1..N : Payload  (sensor-specific; passed to the NodeConfig::decode function)
  *
  * The node ID lets the gateway route and decode each message independently.
  * Messages from unregistered node IDs fall back to raw hex on the generic rx topic.
@@ -66,7 +67,7 @@ public:
      *                    that implement an acknowledgement/retransmission protocol
      *                    (e.g. 0x25 for the mailbox sensor).
      */
-    struct NodeDef
+    struct NodeConfig
     {
         std::string name;           ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
         std::string friendlyName;   ///< HA display name — can have capitals/spaces (e.g. "Mailbox"); defaults to name if empty
@@ -83,11 +84,11 @@ public:
      * @brief Register a sensor node that this gateway will receive messages from.
      *
      * @param nodeId  First byte of every LoRa message sent by this node.
-     * @param def     Node description: name, HA component type, decoder function.
+     * @param nodeConfig Node description: name, HA component type, decoder function.
      *
      * Call before init() so HA discovery is published on the first connection.
      */
-    void registerNode(uint8_t nodeId, NodeDef def);
+    void registerNode(uint8_t nodeId, NodeConfig nodeConfig);
 
     /**
      * @brief Subscribes to MQTT TX topic and registers HA discovery publish on connect.
@@ -103,19 +104,17 @@ public:
 
 private:
     void publishHaDiscovery();
-    void publishNodeDiscovery(const NodeDef& def);
-    void onLoraReceived(const uint8_t* data, size_t len);
-    void onMqttTx(std::string_view payload);
+    void publishNodeDiscovery(const NodeConfig& nodeConfig);
+    void handleLoraMsg(const uint8_t* data, size_t len);
+    void handleMqttMsg(std::string_view payload);
 
     static std::string toHexString(const uint8_t* data, size_t len);
-    static bool fromHexString(std::string_view hex, uint8_t* out, size_t& outLen);
+    static std::vector<uint8_t> fromHexString(std::string_view hex);
 
     MqttClient&    m_mqttClient;
     E32LoraModule& m_loraModule;
     Config         m_config;
-
-    std::unordered_map<uint8_t, NodeDef> m_nodes; ///< registered sensor nodes keyed by node ID
-
+    std::unordered_map<uint8_t, NodeConfig> m_nodes; ///< registered sensor nodes keyed by node ID
     std::string m_rxTopic;
     std::string m_txTopic;
     std::string m_availabilityTopic;

@@ -91,9 +91,9 @@ void setup()
         .haComponent  = "binary_sensor",
         .unit         = "",
         .deviceClass  = "occupancy",
-        .decode      = [](const uint8_t* d, size_t len) -> std::string {
+        .decode      = [](const uint8_t* data, size_t len) -> std::string {
             if (len < 1) return "OFF";
-            return (d[0] == 0x55) ? "ON" : "OFF";
+            return (data[0] == 0x55) ? "ON" : "OFF";
         },
         .ackByte = 0x25   // MAILBOX_ACKNOWLEDGE_MSG — sensor expects this to stop retransmitting
     });

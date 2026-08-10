@@ -121,8 +121,8 @@ bool MqttClient::connect()
 
     subscribeAll();
 
-    for (auto& cb : m_connectCallbacks)
-        cb();
+    for (auto& callback : m_connectCallbacks)
+        callback();
 
     return true;
 }
@@ -148,6 +148,7 @@ bool MqttClient::setupWifi()
             Serial.print(".");
             Serial.flush();
         }
+        
         if (WiFi.status() == WL_CONNECTED)
         {
             ESP_LOGI(TAG, "WiFi connected. IP: %s", WiFi.localIP().toString().c_str());
