@@ -16,7 +16,8 @@
  * Every LoRa message sent by a sensor node must start with a 1-byte node ID:
  *
  *   Byte 0    : Node ID  (matches a registerNode() call below)
- *   Byte 1..N : Payload  (sensor-specific; passed to the NodeConfig::decode function)
+ *   Byte 1    : Entity ID (matches a NodeEntityConfig.entityId for that node)
+ *   Byte 2..N : Payload  (sensor-specific; passed to the NodeConfig::decode function)
  *
  * The node ID lets the gateway route and decode each message independently.
  * Messages from unregistered node IDs fall back to raw hex on the generic rx topic.
@@ -24,20 +25,27 @@
  * ── Topic structure ──────────────────────────────────────────────────────────
  * All topics are relative to  {topicPrefix}{deviceId}/:
  *
- *   availability              — "online" / "offline" (LWT)
- *   {nodeName}/state          — decoded state for a registered sensor node
- *   rx                        — raw hex fallback for unregistered nodes
- *   tx/set                    — outbound MQTT → LoRa (hex string payload)
+ *   availability                    — "online" / "offline" (LWT)
+ *   {entityName}/state              — decoded state per registered entity
+ *   {entityName}/set                — inbound command per entity (writable entities only)
+ *   rx                              — raw hex fallback for unregistered nodes
  *
  * ── HomeAssistant discovery ──────────────────────────────────────────────────
  *   homeassistant/{component}/{deviceId}/{nodeName}/config
  *
  * ── Usage ────────────────────────────────────────────────────────────────────
  *   LoraGatewayBridge bridge{mqttClient, loraModule, {DEVICE_ID, TOPIC_PREFIX}};
- *   bridge.registerNode(0x01, {"mailbox",  "binary_sensor", "", "occupancy",
- *       [](const uint8_t* d, size_t) { return d[0]==0x55 ? "ON" : "OFF"; }});
- *   bridge.registerNode(0x02, {"humidity", "sensor", "%", "humidity",
- *       [](const uint8_t* d, size_t) { return std::to_string(d[0]); }});
+ *   bridge.registerNode(0x01, {
+ *       .name     = "mailbox",
+ *       .entities = {{
+ *           .entityId    = 0x01,
+ *           .name        = "mailbox_door",
+ *           .haComponent = "binary_sensor",
+ *           .deviceClass = "occupancy",
+ *           .decode      = [](const uint8_t* d, size_t) { return d[0]==0x55 ? "ON" : "OFF"; },
+ *           .ackMessage  = {0x25}
+ *       }}
+ *   });
  *   bridge.init();
  *   bridge.process();
  */
@@ -51,31 +59,27 @@ public:
         std::string_view deviceName;  ///< Human-readable name for HA device registry
     };
 
-    /**
-     * @brief Describes a registered sensor node.
-     *
-     * @param name        Short identifier used in MQTT topics, e.g. "mailbox".
-     *                    Results in topic:  lora/{deviceId}/{name}/state
-     * @param haComponent HomeAssistant component type: "binary_sensor", "sensor", etc.
-     * @param unit        Unit of measurement shown in HA (empty string if not applicable).
-     * @param deviceClass HA device class, e.g. "occupancy", "humidity", "temperature".
-     *                    See https://www.home-assistant.io/integrations/sensor/#device-class
-     * @param decode      Converts raw payload bytes (everything after the node-ID byte)
-     *                    into the state string published to MQTT.
-     * @param ackByte     If non-zero, this byte is sent back to the sensor over LoRa
-     *                    immediately after a message is received. Use this for sensors
-     *                    that implement an acknowledgement/retransmission protocol
-     *                    (e.g. 0x25 for the mailbox sensor).
-     */
-    struct NodeConfig
+    struct NodeEntityConfig
     {
+        uint8_t     entityId;       ///< Unique ID for this entity within the node
         std::string name;           ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
         std::string friendlyName;   ///< HA display name — can have capitals/spaces (e.g. "Mailbox"); defaults to name if empty
         std::string haComponent;
         std::string unit;
         std::string deviceClass;
         std::function<std::string(const uint8_t* payload, size_t len)> decode;
-        uint8_t ackByte{0};  ///< ACK byte sent back to sensor (0 = no ACK)
+        std::function<std::vector<uint8_t>(std::string_view payload)> encode;
+        std::vector<uint8_t> ackMessage{};
+
+        std::string getHaDiscoveryTopic(std::string_view deviceId) const;
+        std::string getStateTopic(std::string_view topicPrefix, std::string_view deviceId) const;
+        std::string getCommandTopic(std::string_view topicPrefix, std::string_view deviceId) const;
+    };
+
+    struct NodeConfig
+    {
+        std::string name;           ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
+        std::vector<NodeEntityConfig> entities;  ///< One or more entities (sensors, binary_sensors, etc.) for this node
     };
 
     LoraGatewayBridge(MqttClient& mqttClient, E32LoraModule& loraModule, const Config& config);
@@ -91,7 +95,8 @@ public:
     void registerNode(uint8_t nodeId, NodeConfig nodeConfig);
 
     /**
-     * @brief Subscribes to MQTT TX topic and registers HA discovery publish on connect.
+     * @brief Subscribes to MQTT command topics and publishes HA discovery messages.
+     *        Leaves the E32 module in Normal mode.
      *        Call once from setup(), after MqttClient::init().
      */
     void init();
@@ -106,7 +111,8 @@ private:
     void publishHaDiscovery();
     void publishNodeDiscovery(const NodeConfig& nodeConfig);
     void handleLoraMsg(const uint8_t* data, size_t len);
-    void handleMqttMsg(std::string_view payload);
+    void handleMqttMsg(uint8_t nodeId, uint8_t entityId, std::string_view payload);
+    void subscribeCommandTopics();
 
     static std::string toHexString(const uint8_t* data, size_t len);
     static std::vector<uint8_t> fromHexString(std::string_view hex);

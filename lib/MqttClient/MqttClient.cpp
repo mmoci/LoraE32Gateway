@@ -70,9 +70,9 @@ void MqttClient::publish(std::string_view topic, std::string_view payload, bool 
 
 void MqttClient::subscribe(std::string_view topic, MessageCallback callback)
 {
-    m_subscriptions.emplace(std::string{topic}, std::move(callback));
+    auto [it, inserted] = m_subscriptions.emplace(std::string{topic}, std::move(callback));
 
-    if (m_mqttClient.connected())
+    if (inserted && m_mqttClient.connected())
     {
         m_mqttClient.subscribe(topic.data());
         ESP_LOGD(TAG, "Subscribed: %s", topic.data());

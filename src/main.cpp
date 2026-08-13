@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <vector>
 #include "Config.h"
 #include "MqttClient.h"
 #include "E32LoraModule.h"
@@ -75,42 +76,36 @@ void setup()
     // Add a registerNode() call here for every sensor you want to integrate.
     // Unregistered node IDs fall back to raw hex on the generic lora/.../rx topic.
 
-    // Mailbox binary sensor (node ID = 0x01)
-    // Sensor sends: [0x01, 0x55] = full  |  [0x01, 0xAA] = empty
+    // Mailbox binary sensor (node ID = 0x01, entity ID = 0x01)
+    // Sensor sends: [0x01, 0x01, 0x55] = full  |  [0x01, 0x01, 0xAA] = empty
+    //   Byte 0: node ID (0x01), Byte 1: entity ID (0x01), Byte 2: payload
     // Gateway sends back 0x25 (ACK) so the sensor state machine advances and stops retransmitting.
     // HA topic: lora/lora-gateway/mailbox/state  →  "ON" / "OFF"
     //
-    // ⚠ Sensor firmware change required (LoraE32MailBoxV2):
-    //   The sensor currently sends a raw single byte (0x55 or 0xAA).
-    //   Add the node ID as the first byte before the message byte:
-    //     Before:  Serial.write(transmitMsg);
-    //     After:   Serial.write(0x01); Serial.write(transmitMsg);
+    // ⚠ Sensor firmware change required (LoraE32MailBoxSensor):
+    //   The sensor currently sends a 2-byte frame [nodeId, msg].
+    //   Update to send 3-byte frame [nodeId, entityId, msg]:
+    //     Before:  const uint8_t frame[] = { NODE_ID, msg };
+    //     After:   const uint8_t frame[] = { NODE_ID, ENTITY_ID, msg };
     bridge.registerNode(0x01, {
-        .name         = "mailbox",
-        .friendlyName = "Mailbox",
-        .haComponent  = "binary_sensor",
-        .unit         = "",
-        .deviceClass  = "occupancy",
-        .decode      = [](const uint8_t* data, size_t len) -> std::string {
-            if (len < 1) return "OFF";
-            return (data[0] == 0x55) ? "ON" : "OFF";
-        },
-        .ackByte = 0x25   // MAILBOX_ACKNOWLEDGE_MSG — sensor expects this to stop retransmitting
+        .name     = "mailbox",
+        .entities = {
+            {
+                .entityId     = 0x01,
+                .name         = "mailbox",
+                .friendlyName = "Mailbox",
+                .haComponent  = "binary_sensor",
+                .unit         = "",
+                .deviceClass  = "occupancy",
+                .decode       = [](const uint8_t* data, size_t len) -> std::string {
+                    if (len < 1) return "OFF";
+                    return (data[0] == 0x55) ? "ON" : "OFF";
+                },
+                .encode       = nullptr,  // not used for binary_sensor
+                .ackMessage = {0x25}
+            }
+        }
     });
-
-    // Example: humidity sensor (node ID = 0x02)
-    // Sensor sends: [0x02, humidity_uint8, temperature_int8]
-    // HA topic:     lora/lora-gateway/humidity/state  →  "65" (percent)
-    // bridge.registerNode(0x02, {
-    //     .name        = "humidity",
-    //     .haComponent = "sensor",
-    //     .unit        = "%",
-    //     .deviceClass = "humidity",
-    //     .decode      = [](const uint8_t* d, size_t len) -> std::string {
-    //         if (len < 1) return "0";
-    //         return std::to_string(d[0]);
-    //     }
-    // });
 
     mqttClient.init();  // connects WiFi, configures broker endpoint
     otaHandler.init();  // starts OTA service (lora-gateway.local)
