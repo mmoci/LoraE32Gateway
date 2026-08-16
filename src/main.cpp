@@ -102,7 +102,7 @@ void setup()
                     return (data[0] == 0x55) ? "ON" : "OFF";
                 },
                 .encode       = nullptr,  // not used for binary_sensor
-                .ackMessage = {0x25}
+                .ackMessagePayload = {0x25}
             }
         }
     });

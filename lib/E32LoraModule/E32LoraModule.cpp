@@ -43,7 +43,7 @@ void E32LoraModule::setMode(Mode mode)
     waitForAux();
 }
 
-bool E32LoraModule::available()
+bool E32LoraModule::available() const
 {
     return m_config.serial.available() > 0;
 }

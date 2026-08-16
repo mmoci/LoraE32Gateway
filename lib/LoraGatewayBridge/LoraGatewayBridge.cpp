@@ -171,11 +171,13 @@ void LoraGatewayBridge::handleLoraMsg(const uint8_t* data, size_t len)
         ESP_LOGI(TAG, "Node 0x%02X, entity 0x%02X (%s) → %s", nodeId, entityId, entityIt->name.c_str(), state.c_str());
 
         // Send ACK back to sensor if configured (before the sensor retransmits)
-        if (!entityIt->ackMessage.empty() && entityIt->ackMessage[0] != 0)
+        if (!entityIt->ackMessagePayload.empty() && entityIt->ackMessagePayload[0] != 0)
         {
-            m_loraModule.send(entityIt->ackMessage.data(), entityIt->ackMessage.size());
+            std::vector<uint8_t> ackMessage{nodeId, entityId};
+            ackMessage.insert(ackMessage.end(), entityIt->ackMessagePayload.begin(), entityIt->ackMessagePayload.end());
+            m_loraModule.send(ackMessage.data(), ackMessage.size());
             ESP_LOGD(TAG, "Node 0x%02X ACK sent: %s", nodeId, 
-                toHexString(entityIt->ackMessage.data(), entityIt->ackMessage.size()).c_str());
+                toHexString(entityIt->ackMessagePayload.data(), entityIt->ackMessagePayload.size()).c_str());
         }
     }
     else

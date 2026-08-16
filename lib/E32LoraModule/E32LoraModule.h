@@ -67,9 +67,10 @@ public:
     void setMode(Mode mode);
 
     /**
-     * @brief Returns true if one or more bytes are waiting in the UART RX buffer.
+     * @brief Checks if there is data available to read.
+     * @return true if there is data available to read.
      */
-    bool available();
+    bool available() const;
 
     /**
      * @brief Reads up to maxLen bytes into buf.

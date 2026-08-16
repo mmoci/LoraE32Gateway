@@ -43,7 +43,7 @@
  *           .haComponent = "binary_sensor",
  *           .deviceClass = "occupancy",
  *           .decode      = [](const uint8_t* d, size_t) { return d[0]==0x55 ? "ON" : "OFF"; },
- *           .ackMessage  = {0x25}
+ *           .ackMessagePayload  = {0x25}
  *       }}
  *   });
  *   bridge.init();
@@ -69,7 +69,7 @@ public:
         std::string deviceClass;
         std::function<std::string(const uint8_t* payload, size_t len)> decode;
         std::function<std::vector<uint8_t>(std::string_view payload)> encode;
-        std::vector<uint8_t> ackMessage{};
+        std::vector<uint8_t> ackMessagePayload{};
 
         std::string getHaDiscoveryTopic(std::string_view deviceId) const;
         std::string getStateTopic(std::string_view topicPrefix, std::string_view deviceId) const;
