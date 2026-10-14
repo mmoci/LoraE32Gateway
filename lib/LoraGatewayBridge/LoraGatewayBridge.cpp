@@ -14,17 +14,16 @@ LoraGatewayBridge::LoraGatewayBridge(MqttClient& mqttClient, E32LoraModule& lora
     , m_config{config}
 {
     std::string base{m_config.topicPrefix};
-    base.append(m_config.deviceId);
+    base.append(m_config.proxyName);
     base.append("/");
 
     m_availabilityTopic = base + "availability";
     m_rxTopic           = base + "rx";
-    m_txTopic           = base + "tx/set";
 }
 
 void LoraGatewayBridge::registerNode(uint8_t nodeId, NodeConfig nodeConfig)
 {
-    ESP_LOGI(TAG, "Node 0x%02X registered: %s", nodeId, nodeConfig.name.c_str());
+    ESP_LOGI(TAG, "Node 0x%02X registered: %s", nodeId, nodeConfig.deviceName.c_str());
     
     for (const auto& nodeEntity : nodeConfig.entities)
     {
@@ -80,7 +79,7 @@ void LoraGatewayBridge::subscribeCommandTopics()
         {
             if(!entity.encode) continue;
 
-            m_mqttClient.subscribe(entity.getCommandTopic(m_config.topicPrefix, m_config.deviceId), 
+            m_mqttClient.subscribe(entity.getCommandTopic(m_config.topicPrefix,  m_config.proxyName, nodeConfig.deviceName), 
                 [this, nodeId, entityId = entity.entityId](std::string_view payload) {
                     handleMqttMsg(nodeId, entityId, payload);
             });
@@ -98,13 +97,13 @@ void LoraGatewayBridge::publishNodeDiscovery(const NodeConfig& nodeConfig)
 {
     for (const auto& entity : nodeConfig.entities)
     {
-        std::string discoveryTopic{entity.getHaDiscoveryTopic(m_config.deviceId)};
-        std::string stateTopic{entity.getStateTopic(m_config.topicPrefix, m_config.deviceId)};
+        std::string discoveryTopic{entity.getHaDiscoveryTopic(m_config.proxyName, nodeConfig.deviceName)};
+        std::string stateTopic{entity.getStateTopic(m_config.topicPrefix, m_config.proxyName, nodeConfig.deviceName)};
 
         JsonDocument doc{};
 
         doc["name"]                  = entity.friendlyName.empty() ? entity.name : entity.friendlyName;
-        doc["unique_id"]             = std::string{m_config.deviceId} + "_" + entity.name;
+        doc["unique_id"]             = std::string{m_config.proxyName} + "_" + std::string{nodeConfig.deviceName} + "_" + entity.name + "_" + std::to_string(entity.entityId);
         doc["state_topic"]           = stateTopic;
         doc["availability_topic"]    = m_availabilityTopic;
         doc["payload_available"]     = "online";
@@ -117,10 +116,11 @@ void LoraGatewayBridge::publishNodeDiscovery(const NodeConfig& nodeConfig)
 
         JsonObject device{ doc["device"].to<JsonObject>() };
 
-        device["identifiers"][0] = m_config.deviceId;
-        device["name"]           = m_config.deviceName;
-        device["model"]          = "E32 LoRa Gateway";
+        device["identifiers"][0] = std::string{m_config.proxyName} + "_" + std::string{nodeConfig.deviceName};
+        device["name"]           = nodeConfig.friendlyDeviceName.empty() ? nodeConfig.deviceName : nodeConfig.friendlyDeviceName;
+        device["model"]          = "E32 LoRa Mailbox";
         device["manufacturer"]   = "Custom";
+        device["via_device"]     = m_config.proxyName;
 
         std::string payload;
         serializeJson(doc, payload);
@@ -165,7 +165,7 @@ void LoraGatewayBridge::handleLoraMsg(const uint8_t* data, size_t len)
         size_t         payloadLen = len - 2;
 
         std::string state     {entityIt->decode(payload, payloadLen)};
-        std::string stateTopic{entityIt->getStateTopic(m_config.topicPrefix, m_config.deviceId)};
+        std::string stateTopic{entityIt->getStateTopic(m_config.topicPrefix, m_config.proxyName, nodeConfig.deviceName)};
 
         m_mqttClient.publish(stateTopic, state, /*retain=*/true);
         ESP_LOGI(TAG, "Node 0x%02X, entity 0x%02X (%s) → %s", nodeId, entityId, entityIt->name.c_str(), state.c_str());
@@ -177,7 +177,7 @@ void LoraGatewayBridge::handleLoraMsg(const uint8_t* data, size_t len)
             ackMessage.insert(ackMessage.end(), entityIt->ackMessagePayload.begin(), entityIt->ackMessagePayload.end());
             m_loraModule.send(ackMessage.data(), ackMessage.size());
             ESP_LOGD(TAG, "Node 0x%02X ACK sent: %s", nodeId, 
-                toHexString(entityIt->ackMessagePayload.data(), entityIt->ackMessagePayload.size()).c_str());
+                toHexString(ackMessage.data(), ackMessage.size()).c_str());
         }
     }
     else
@@ -233,7 +233,7 @@ void LoraGatewayBridge::handleMqttMsg(uint8_t nodeId, uint8_t entityId, std::str
 
     auto encodedPayload = entityIt->encode(payload);
 
-    std::vector<uint8_t> buf{nodeId};
+    std::vector<uint8_t> buf{nodeId, entityId};
     buf.insert(buf.end(), encodedPayload.begin(), encodedPayload.end());
 
     if (buf.size() < 2)
@@ -294,23 +294,23 @@ std::vector<uint8_t> LoraGatewayBridge::fromHexString(std::string_view hex)
     return out;
 }
 
-std::string LoraGatewayBridge::NodeEntityConfig::getHaDiscoveryTopic(std::string_view deviceId) const
+std::string LoraGatewayBridge::NodeEntityConfig::getHaDiscoveryTopic(std::string_view proxyName, std::string_view deviceName) const
 {
     std::string topic{"homeassistant/"};
-    topic.append(haComponent).append("/").append(deviceId).append("/").append(name).append("/config");
+    topic.append(haComponent).append("/").append(proxyName).append("/").append(deviceName).append("/").append(name).append("/config");
     return topic;
 }
 
-std::string LoraGatewayBridge::NodeEntityConfig::getStateTopic(std::string_view topicPrefix, std::string_view deviceId) const
+std::string LoraGatewayBridge::NodeEntityConfig::getStateTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const
 {
     std::string topic{topicPrefix};
-    topic.append(deviceId).append("/").append(name).append("/state");
+    topic.append(proxyName).append("/").append(deviceName).append("/").append(name).append("/state");
     return topic;
 }
 
-std::string LoraGatewayBridge::NodeEntityConfig::getCommandTopic(std::string_view topicPrefix, std::string_view deviceId) const
+std::string LoraGatewayBridge::NodeEntityConfig::getCommandTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const
 {
     std::string topic{topicPrefix};
-    topic.append(deviceId).append("/").append(name).append("/set");
+    topic.append(proxyName).append("/").append(deviceName).append("/").append(name).append("/set");
     return topic;
 }

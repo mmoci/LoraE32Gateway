@@ -43,9 +43,8 @@ static MqttClient mqttClient{MqttClient::Config{
 
 // ─── Gateway Bridge ─────────────────────────────────────────────────────────
 static LoraGatewayBridge bridge{mqttClient, loraModule, LoraGatewayBridge::Config{
-    .deviceId    = GatewayConfig::DEVICE_ID,
-    .topicPrefix = GatewayConfig::TOPIC_PREFIX,
-    .deviceName  = GatewayConfig::DEVICE_NAME,
+    .proxyName   = GatewayConfig::DEVICE_ID,
+    .topicPrefix = GatewayConfig::TOPIC_PREFIX
 }};
 // ─── OTA Handler ─────────────────────────────────────────────────────────────
 static OtaHandler otaHandler{OtaHandler::Config{
@@ -88,12 +87,13 @@ void setup()
     //     Before:  const uint8_t frame[] = { NODE_ID, msg };
     //     After:   const uint8_t frame[] = { NODE_ID, ENTITY_ID, msg };
     bridge.registerNode(0x01, {
-        .name     = "mailbox",
+        .deviceName = "mailbox",
+        .friendlyDeviceName = "Mailbox",
         .entities = {
             {
                 .entityId     = 0x01,
-                .name         = "mailbox",
-                .friendlyName = "Mailbox",
+                .name         = "door",
+                .friendlyName = "Mailbox Door",
                 .haComponent  = "binary_sensor",
                 .unit         = "",
                 .deviceClass  = "occupancy",

@@ -28,13 +28,13 @@
  *   availability                    — "online" / "offline" (LWT)
  *   {entityName}/state              — decoded state per registered entity
  *   {entityName}/set                — inbound command per entity (writable entities only)
- *   rx                              — raw hex fallback for unregistered nodes
+ *   rx                              - raw hex fallback for unregistered nodes
  *
  * ── HomeAssistant discovery ──────────────────────────────────────────────────
- *   homeassistant/{component}/{deviceId}/{nodeName}/config
+ *   homeassistant/{component}/{proxyName}_{deviceName}/{entityName}/config
  *
  * ── Usage ────────────────────────────────────────────────────────────────────
- *   LoraGatewayBridge bridge{mqttClient, loraModule, {DEVICE_ID, TOPIC_PREFIX}};
+ *   LoraGatewayBridge bridge{mqttClient, loraModule, {PROXY_NAME, TOPIC_PREFIX}};
  *   bridge.registerNode(0x01, {
  *       .name     = "mailbox",
  *       .entities = {{
@@ -54,9 +54,8 @@ class LoraGatewayBridge
 public:
     struct Config
     {
-        std::string_view deviceId;
+        std::string_view proxyName;   ///< Human-readable name for the proxy (e.g., "lora_gateway")
         std::string_view topicPrefix; ///< e.g. "lora/"
-        std::string_view deviceName;  ///< Human-readable name for HA device registry
     };
 
     struct NodeEntityConfig
@@ -71,14 +70,15 @@ public:
         std::function<std::vector<uint8_t>(std::string_view payload)> encode;
         std::vector<uint8_t> ackMessagePayload{};
 
-        std::string getHaDiscoveryTopic(std::string_view deviceId) const;
-        std::string getStateTopic(std::string_view topicPrefix, std::string_view deviceId) const;
-        std::string getCommandTopic(std::string_view topicPrefix, std::string_view deviceId) const;
+        std::string getHaDiscoveryTopic(std::string_view proxyName, std::string_view deviceName) const;
+        std::string getStateTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const;
+        std::string getCommandTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const;
     };
 
     struct NodeConfig
     {
-        std::string name;           ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
+        std::string deviceName;                  ///< MQTT topic segment — lowercase, no spaces (e.g. "mailbox")
+        std::string friendlyDeviceName;          ///< HA display name — can have capitals/spaces (e.g. "Mailbox"); defaults to deviceName if empty
         std::vector<NodeEntityConfig> entities;  ///< One or more entities (sensors, binary_sensors, etc.) for this node
     };
 
@@ -100,7 +100,7 @@ public:
      *        Call once from setup(), after MqttClient::init().
      */
     void init();
-
+    
     /**
      * @brief Polls the E32 module for incoming bytes and forwards them to MQTT.
      *        Call every loop() iteration.
@@ -122,6 +122,5 @@ private:
     Config         m_config;
     std::unordered_map<uint8_t, NodeConfig> m_nodes; ///< registered sensor nodes keyed by node ID
     std::string m_rxTopic;
-    std::string m_txTopic;
     std::string m_availabilityTopic;
 };
