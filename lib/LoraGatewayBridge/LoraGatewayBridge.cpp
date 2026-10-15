@@ -119,8 +119,7 @@ void LoraGatewayBridge::publishNodeDiscovery(const NodeConfig& nodeConfig)
         device["identifiers"][0] = std::string{m_config.proxyName} + "_" + std::string{nodeConfig.deviceName};
         device["name"]           = nodeConfig.friendlyDeviceName.empty() ? nodeConfig.deviceName : nodeConfig.friendlyDeviceName;
         device["model"]          = "E32 LoRa Mailbox";
-        device["manufacturer"]   = "Custom";
-        device["via_device"]     = m_config.proxyName;
+        device["manufacturer"]   = "Marko Mocilac";
 
         std::string payload;
         serializeJson(doc, payload);
@@ -296,8 +295,10 @@ std::vector<uint8_t> LoraGatewayBridge::fromHexString(std::string_view hex)
 
 std::string LoraGatewayBridge::NodeEntityConfig::getHaDiscoveryTopic(std::string_view proxyName, std::string_view deviceName) const
 {
+    // HA discovery format: homeassistant/<component>/<node_id>/<object_id>/config
+    // Keep object_id as a single level by combining device + entity names.
     std::string topic{"homeassistant/"};
-    topic.append(haComponent).append("/").append(proxyName).append("/").append(deviceName).append("/").append(name).append("/config");
+    topic.append(haComponent).append("/").append(proxyName).append("/").append(deviceName).append("_").append(name).append("/config");
     return topic;
 }
 

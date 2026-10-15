@@ -88,7 +88,7 @@ void setup()
     //     After:   const uint8_t frame[] = { NODE_ID, ENTITY_ID, msg };
     bridge.registerNode(0x01, {
         .deviceName = "mailbox",
-        .friendlyDeviceName = "Mailbox",
+        .friendlyDeviceName = "LoRa Mailbox",
         .entities = {
             {
                 .entityId     = 0x01,
