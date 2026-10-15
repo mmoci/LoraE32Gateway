@@ -23,12 +23,12 @@
  * Messages from unregistered node IDs fall back to raw hex on the generic rx topic.
  *
  * ── Topic structure ──────────────────────────────────────────────────────────
- * All topics are relative to  {topicPrefix}{deviceId}/:
+ * Runtime topics use node_key = {proxyName}_{deviceName}:
  *
- *   availability                    — "online" / "offline" (LWT)
- *   {entityName}/state              — decoded state per registered entity
- *   {entityName}/set                — inbound command per entity (writable entities only)
- *   rx                              - raw hex fallback for unregistered nodes
+ *   {topicPrefix}{proxyName}/availability          - "online" / "offline" (LWT)
+ *   {topicPrefix}{proxyName}/rx                    - raw hex fallback for unregistered nodes
+ *   {topicPrefix}{proxyName}_{deviceName}/{entityName}/state - decoded state
+ *   {topicPrefix}{proxyName}_{deviceName}/{entityName}/set - inbound command
  *
  * ── HomeAssistant discovery ──────────────────────────────────────────────────
  *   homeassistant/{component}/{proxyName}_{deviceName}/{entityName}/config

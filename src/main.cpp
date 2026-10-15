@@ -79,7 +79,7 @@ void setup()
     // Sensor sends: [0x01, 0x01, 0x55] = full  |  [0x01, 0x01, 0xAA] = empty
     //   Byte 0: node ID (0x01), Byte 1: entity ID (0x01), Byte 2: payload
     // Gateway sends back 0x25 (ACK) so the sensor state machine advances and stops retransmitting.
-    // HA topic: lora/lora-gateway/mailbox/state  →  "ON" / "OFF"
+    // HA state topic: lora/lora-gateway_mailbox/door/state  →  "ON" / "OFF"
     //
     // ⚠ Sensor firmware change required (LoraE32MailBoxSensor):
     //   The sensor currently sends a 2-byte frame [nodeId, msg].

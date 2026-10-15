@@ -296,22 +296,28 @@ std::vector<uint8_t> LoraGatewayBridge::fromHexString(std::string_view hex)
 std::string LoraGatewayBridge::NodeEntityConfig::getHaDiscoveryTopic(std::string_view proxyName, std::string_view deviceName) const
 {
     // HA discovery format: homeassistant/<component>/<node_id>/<object_id>/config
-    // Keep object_id as a single level by combining device + entity names.
+    // Use node_id as <proxy>_<device> and object_id as <entity>.
+    // This keeps the node semantic aligned with the actual LoRa node while
+    // staying globally unique in multi-gateway setups.
     std::string topic{"homeassistant/"};
-    topic.append(haComponent).append("/").append(proxyName).append("/").append(deviceName).append("_").append(name).append("/config");
+    topic.append(haComponent).append("/").append(proxyName).append("_").append(deviceName).append("/").append(name).append("/config");
     return topic;
 }
 
 std::string LoraGatewayBridge::NodeEntityConfig::getStateTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const
 {
+    // Keep runtime topics aligned with discovery node_id/object_id mapping.
+    // node_key = <proxy>_<device>, object_id = <entity>
     std::string topic{topicPrefix};
-    topic.append(proxyName).append("/").append(deviceName).append("/").append(name).append("/state");
+    topic.append(proxyName).append("_").append(deviceName).append("/").append(name).append("/state");
     return topic;
 }
 
 std::string LoraGatewayBridge::NodeEntityConfig::getCommandTopic(std::string_view topicPrefix, std::string_view proxyName, std::string_view deviceName) const
 {
+    // Keep runtime topics aligned with discovery node_id/object_id mapping.
+    // node_key = <proxy>_<device>, object_id = <entity>
     std::string topic{topicPrefix};
-    topic.append(proxyName).append("/").append(deviceName).append("/").append(name).append("/set");
+    topic.append(proxyName).append("_").append(deviceName).append("/").append(name).append("/set");
     return topic;
 }
